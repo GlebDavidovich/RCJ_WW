@@ -11,3 +11,4 @@ int getAngle();
 int getAngle_600();
 bool isBall();
 int8_t getCamData(char color);
+int readMux(int channel);

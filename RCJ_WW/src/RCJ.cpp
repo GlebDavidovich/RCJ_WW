@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "Wire.h"
 #include "motors.h"
 #include "sensors.h"
@@ -209,24 +210,30 @@ void setup() {
 }
 
 void loop() {
-
-  enc.tick();
-  if (enc.right()){
-    pointer = constrain(pointer + 1, 0, MENU_NUM - 1);
-    oledPrintMenu();
+  for(int i = 0; i < 6; i ++){
+    Serial.print(readMux(i));
+    Serial.print(" ");
+    delay(20);
   }
-  else if (enc.left()){
-    pointer = constrain(pointer - 1, 0, MENU_NUM - 1);
-    oledPrintMenu();
-  }
-  else if (enc.click()){
-    switch (pointer){
-      case 0: playForward(0); break;
-      case 1: playGoalkeeper(0); break;
-      case 2: playForward(1); break;
-      case 3: playGoalkeeper(1); break;
-      case 4: sensorsCheck(); break;
-      case 5: another(); break;
-    }
-  }
+  Serial.println();
+  //delay(100);
+  // enc.tick();
+  // if (enc.right()){
+  //   pointer = constrain(pointer + 1, 0, MENU_NUM - 1);
+  //   oledPrintMenu();
+  // }
+  // else if (enc.left()){
+  //   pointer = constrain(pointer - 1, 0, MENU_NUM - 1);
+  //   oledPrintMenu();
+  // }
+  // else if (enc.click()){
+  //   switch (pointer){
+  //     case 0: playForward(0); break;
+  //     case 1: playGoalkeeper(0); break;
+  //     case 2: playForward(1); break;
+  //     case 3: playGoalkeeper(1); break;
+  //     case 4: sensorsCheck(); break;
+  //     case 5: another(); break;
+  //   }
+  // }
 }

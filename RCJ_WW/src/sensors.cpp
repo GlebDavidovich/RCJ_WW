@@ -1,10 +1,18 @@
 #include "sensors.h"
-#include "locator.h"
-#include "I2Cdev.h"
-#include <MPU6050_6Axis_MotionApps20.h>
 #include "TrackingCamI2C.h"
 #include "Wire.h"
 #include <EEPROM.h>
+#include "locator.h"
+#include <MPU6050_6Axis_MotionApps20.h>
+#include "I2Cdev.h"
+
+
+#define EN 25
+#define S0 13
+#define S1 12
+#define S2 26
+#define S3 27 
+#define SIG 14
 
 uint8_t fifoBuffer[45];  // буфер
 int offsets[6];
@@ -25,6 +33,19 @@ void mpuAndCamInit() {
   mpu.dmpInitialize();
   mpu.setDMPEnabled(true);
   trackingCam.init(51, 400000);
+
+  pinMode(S0, OUTPUT); 
+  pinMode(S1, OUTPUT); 
+  pinMode(S2, OUTPUT); 
+  pinMode(S3, OUTPUT);   
+
+  digitalWrite(S0, LOW);
+  digitalWrite(S1, LOW);
+  digitalWrite(S2, LOW);
+  digitalWrite(S3, LOW);
+
+  pinMode(EN, OUTPUT); 
+  digitalWrite(EN, LOW);
 }
 
 void setupOffsetsFromEEPROM() {
@@ -134,6 +155,7 @@ int16_t mpuGetDegree() {
       tmr = millis();  // сброс таймера
     }
   }
+  return 0;
 }
 
 int getStrength() {
@@ -185,4 +207,34 @@ int8_t getCamData(char color) { //0 - yellow, 1 - blue
     Serial.println(cam_angle);
     return cam_angle;
   }
+  return 0;
+}
+
+int readMux(int channel){
+  int controlPin[] = {S0, S1, S2, S3};
+
+  int muxChannel[16][4]={
+    {0,0,0,0}, //channel 0
+    {1,0,0,0}, //channel 1
+    {0,1,0,0}, //channel 2
+    {1,1,0,0}, //channel 3
+    {0,0,1,0}, //channel 4
+    {1,0,1,0}, //channel 5
+    {0,1,1,0}, //channel 6
+    {1,1,1,0}, //channel 7
+    {0,0,0,1}, //channel 8
+    {1,0,0,1}, //channel 9
+    {0,1,0,1}, //channel 10
+    {1,1,0,1}, //channel 11
+    {0,0,1,1}, //channel 12
+    {1,0,1,1}, //channel 13
+    {0,1,1,1}, //channel 14
+    {1,1,1,1}  //channel 15
+  };
+
+  for(int i = 0; i < 4; i ++){
+    digitalWrite(controlPin[i], muxChannel[channel][i]);
+  }
+
+  return analogRead(SIG);
 }
