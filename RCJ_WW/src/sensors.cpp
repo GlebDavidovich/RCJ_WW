@@ -24,6 +24,12 @@ int16_t ax, ay, az, gx, gy, gz;
 int mean_ax, mean_ay, mean_az, mean_gx, mean_gy, mean_gz, state = 0;
 int ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset;
 
+int green[16];
+int white[16];
+
+static uint32_t camera_timer=0;
+int8_t cam_angle =0;
+
 
 MPU6050 mpu;
 TrackingCamI2C trackingCam;
@@ -52,7 +58,8 @@ void setupOffsetsFromEEPROM() {
   EEPROM.begin(4096);
   // ставим оффсеты из памяти
   EEPROM.get(0, offsets);
-  EEPROM.commit();
+  EEPROM.get(25, green);
+  EEPROM.get(90, white);
   mpu.setXAccelOffset(offsets[0]);
   mpu.setYAccelOffset(offsets[1]);
   mpu.setZAccelOffset(offsets[2]);
@@ -60,12 +67,26 @@ void setupOffsetsFromEEPROM() {
   mpu.setYGyroOffset(offsets[4]);
   mpu.setZGyroOffset(offsets[5]);
 
+  
+
   Serial.println(offsets[0]);
   Serial.println(offsets[1]);
   Serial.println(offsets[2]);
   Serial.println(offsets[3]);
   Serial.println(offsets[4]);
   Serial.println(offsets[5]);
+  Serial.println("green:");
+  for (int i = 0; i < 16; i++){
+    Serial.print(green[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
+  Serial.println("white:");
+  for (int i = 0; i < 16; i++){
+    Serial.print(white[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
 }
 
 void meansensors() {
@@ -155,7 +176,6 @@ int16_t mpuGetDegree() {
       tmr = millis();  // сброс таймера
     }
   }
-  return 0;
 }
 
 int getStrength() {
@@ -186,10 +206,10 @@ bool isBall() {
 }
 
 int8_t getCamData(char color) { //0 - yellow, 1 - blue
-  static uint32_t camera_timer;
-  if (millis() - camera_timer >= 33) {
+  if (millis() - camera_timer >= 30) {
     camera_timer = millis();
     uint8_t n = trackingCam.readBlobs(5);
+    //Serial.println(n);
     if (n == 0) return 0;
     TrackingCamBlobInfo_t maxBlob;
     if (n > 1) {
@@ -200,14 +220,16 @@ int8_t getCamData(char color) { //0 - yellow, 1 - blue
     } else {
       maxBlob = trackingCam.blob[0];
     }
-    if (maxBlob.type != color) return 0;
-    int8_t cam_angle = (maxBlob.cx-160)*70/320;
-    Serial.print(maxBlob.type);
-    Serial.print("  ");
+    //if (maxBlob.type != color) return 0;
+    cam_angle = (maxBlob.cx-160)*70/320;
+    // Serial.print(maxBlob.type);
+    // Serial.print("  ");
     Serial.println(cam_angle);
+    
     return cam_angle;
   }
-  return 0;
+  return cam_angle;
+  //return 0;
 }
 
 int readMux(int channel){
@@ -237,4 +259,120 @@ int readMux(int channel){
   }
 
   return analogRead(SIG);
+}
+
+void getGreen(){ 
+  for (int i = 0; i < 16; i++){ 
+    green[i] = readMux(i); 
+    Serial.print(green[i]); 
+    Serial.print(' '); 
+  } 
+  
+  Serial.println(); 
+} 
+
+void whiteTo0(){
+  for (int i = 0; i < 16; i++){ 
+    white[i] = 0;
+  } 
+}
+
+void getWhite(){
+  for (int i = 0; i < 16; i++){ 
+    white[i] = max(white[i], readMux(i)); 
+    Serial.print(white[i]); 
+    Serial.print(' '); 
+  } 
+  
+  Serial.println();
+}
+ 
+void EEPROMSaveLines(){
+  EEPROM.put(25, green);
+  EEPROM.put(90, white);
+  EEPROM.commit();
+}
+
+int isLine(){
+  double sumX = 0;
+  double sumY = 0;
+  int k = 0;
+
+  double maxDist = 0;
+  double angle1 = 0, angle2 = 0;
+  double single = 0;
+  for (int i = 0; i < 12; i++){ 
+    if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
+      double angle = (12 - i + 2) * 22.5; 
+      //if (angle > 180) angle -= 360; 
+      //Serial.print(angle);
+      //Serial.print(" ");
+      k++;
+      sumX += sin(angle * DEG_TO_RAD);
+      sumY += cos(angle * DEG_TO_RAD);
+      Serial.print(angle);
+      Serial.print("* ");
+      //Serial.print("(");
+      //Serial.print(sin(angle * DEG_TO_RAD));
+      //Serial.print(" ");
+      //Serial.print(cos(angle * DEG_TO_RAD));
+      //Serial.print(") ");
+      //return angle; 
+    } 
+  }
+  if (k == 0)
+    return 360;
+  double averageX = sumX / k;
+  double averageY = sumY / k;
+  double angle = atan2(averageX, averageY) * RAD_TO_DEG;
+  //Serial.print("  average = ");
+  //Serial.println(angle);
+  return angle;
+  // for (int i = 0; i < 12; i++){ 
+  //   if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
+  //     k++;
+  //     double a1 = (12 - i + 2) * 22.5;
+  //     single = a1;
+  //     Serial.print(a1);
+  //     Serial.print(" ");
+  //     for (int j = 0; j < 12; j++){ 
+  //       if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
+  //         double a2 = (12 - i + 2) * 22.5;
+  //         double delta = abs(a1 - a2);
+  //         if (delta > 180){
+  //           delta = 360 - delta;
+  //         }
+  //         if (delta > maxDist){
+  //           maxDist = delta;
+  //           angle1 = a1;
+  //           angle2 = a2;
+  //         }
+  //       } 
+  //     } 
+  //   } 
+  // }
+  // Serial.println();
+  // if (k == 0)
+  //   return 360;
+  // if (k == 1){
+  //   if (single > 180)
+  //     single -= 360;
+  //   return single;
+  // }
+  // double averX = (cos(DEG_TO_RAD * angle1) + cos(DEG_TO_RAD * angle2)) / 2; 
+  // double averY = (sin(DEG_TO_RAD * angle1) + sin(DEG_TO_RAD * angle2)) / 2; 
+  // int angle = atan2(averY, averX);
+  // return angle;
+}
+
+bool isLineBehind(){
+  for (int i = 0; i < 12; i++){ 
+    if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
+      double angle = (12 - i + 2) * 22.5;
+      if (angle >= 90 && angle <= 270){
+        return true;
+      }
+    } 
+  }
+  return false;
 }
