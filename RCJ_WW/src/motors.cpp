@@ -54,8 +54,10 @@ void singleMotorControl(uint8_t num, int16_t speed) {
   }
 
   if (speed > 0) {
-    analogWrite(motorpwm, 255 - speed);
+    analogWrite(motorpwm, 280 - speed);
     digitalWrite(motor, HIGH);
+    // analogWrite(motor, abs(speed));
+    // digitalWrite(motorpwm, LOW);
   } else {
     analogWrite(motorpwm, abs(speed));
     digitalWrite(motor, LOW);

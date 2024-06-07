@@ -27,6 +27,8 @@ int ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset;
 int green[16];
 int white[16];
 
+int lastLineDirection = 360;
+
 static uint32_t camera_timer=0;
 int8_t cam_angle =0;
 
@@ -182,17 +184,18 @@ int getStrength() {
   return ReadStrenght();
 }
 
-int getAngle() {
+int getBallAngle() {
   int angle;
-  if (ReadStrenght_600() < 15) angle = ReadHeading_1200();
-  else angle = ReadHeading_600();
+  angle = ReadHeading_1200();
+  //if (ReadStrenght_600() < 15) angle = ReadHeading_1200();
+  //else angle = ReadHeading_600();
   int dir = 360 - (5 * angle);
   if (dir > 180) dir = dir - 360;
   dir = constrain(dir, -180, 180);
   return dir;
 }
 
-int getAngle_600() {
+int getBallAngle_600() {
   int angle;
   angle = ReadHeading_600();
   int dir = 360 - (5 * angle);
@@ -202,7 +205,7 @@ int getAngle_600() {
 }
 
 bool isBall() {
-  return (ReadStrenght_600() >= 30) && (abs(getAngle()) <= 0);
+  return (ReadStrenght_600() >= 15) && (abs(getBallAngle()) <= 5);
 }
 
 int8_t getCamData(char color) { //0 - yellow, 1 - blue
@@ -293,7 +296,11 @@ void EEPROMSaveLines(){
   EEPROM.commit();
 }
 
-int isLine(){
+bool isLineOnSensor(int sensor){
+  return (readMux(sensor) - green[sensor] >= (white[sensor] - green[sensor]) * 0.55);
+}
+
+int getLineAngle_Avg(){
   double sumX = 0;
   double sumY = 0;
   int k = 0;
@@ -301,17 +308,17 @@ int isLine(){
   double maxDist = 0;
   double angle1 = 0, angle2 = 0;
   double single = 0;
-  for (int i = 0; i < 12; i++){ 
-    if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
-      double angle = (12 - i + 2) * 22.5; 
+  for (int i = 0; i < 16; i++){ 
+    if (isLineOnSensor(i)){ 
+      double angle = (16 - i ) * 22.5; 
       //if (angle > 180) angle -= 360; 
       //Serial.print(angle);
       //Serial.print(" ");
       k++;
       sumX += sin(angle * DEG_TO_RAD);
       sumY += cos(angle * DEG_TO_RAD);
-      Serial.print(angle);
-      Serial.print("* ");
+      //Serial.print(angle);
+      //Serial.print("* ");
       //Serial.print("(");
       //Serial.print(sin(angle * DEG_TO_RAD));
       //Serial.print(" ");
@@ -328,51 +335,83 @@ int isLine(){
   //Serial.print("  average = ");
   //Serial.println(angle);
   return angle;
-  // for (int i = 0; i < 12; i++){ 
-  //   if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
-  //     k++;
-  //     double a1 = (12 - i + 2) * 22.5;
-  //     single = a1;
-  //     Serial.print(a1);
-  //     Serial.print(" ");
-  //     for (int j = 0; j < 12; j++){ 
-  //       if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
-  //         double a2 = (12 - i + 2) * 22.5;
-  //         double delta = abs(a1 - a2);
-  //         if (delta > 180){
-  //           delta = 360 - delta;
-  //         }
-  //         if (delta > maxDist){
-  //           maxDist = delta;
-  //           angle1 = a1;
-  //           angle2 = a2;
-  //         }
-  //       } 
-  //     } 
-  //   } 
-  // }
-  // Serial.println();
-  // if (k == 0)
-  //   return 360;
-  // if (k == 1){
-  //   if (single > 180)
-  //     single -= 360;
-  //   return single;
-  // }
-  // double averX = (cos(DEG_TO_RAD * angle1) + cos(DEG_TO_RAD * angle2)) / 2; 
-  // double averY = (sin(DEG_TO_RAD * angle1) + sin(DEG_TO_RAD * angle2)) / 2; 
-  // int angle = atan2(averY, averX);
-  // return angle;
+}
+
+int getLineAngle_Max(){
+  int k = 0;
+  double maxDist = 0;
+  double angle1 = 0, angle2 = 0;
+  double single = 0;
+
+  int angles[16];
+  for (int i = 0; i < 16; i++){ 
+    if (isLineOnSensor(i)){
+      double angle = (16 - i ) * 22.5; 
+      angles[k] = angle;
+      k++;
+    }
+  }
+  
+  //Serial.print("Sensors: ");
+  for (int i = 0; i < k; i++){ 
+    if (isLineOnSensor(i)){ 
+      //k++;
+      double a1 = angles[i];//(16 - i) * 22.5;
+      single = a1;
+      // Serial.print(a1);
+      // Serial.print(" ");
+      for (int j = 0; j < k; j++){ 
+        if (i != j && isLineOnSensor(j)){ 
+          double a2 = angles[j];//(16 - j) * 22.5;
+          double delta = abs(a1 - a2);
+          if (delta > 180){
+            delta = 360 - delta;
+          }
+          if (delta > maxDist){
+            maxDist = delta;
+            angle1 = a1;
+            angle2 = a2;
+          }
+        } 
+      } 
+    } 
+  }
+  //Serial.println();
+  if (k == 0)
+    return 360;
+  if (k == 1){
+    if (single > 180)
+      single -= 360;
+    return single;
+  }
+  double averX = (cos(DEG_TO_RAD * angle1) + cos(DEG_TO_RAD * angle2)) / 2; 
+  double averY = (sin(DEG_TO_RAD * angle1) + sin(DEG_TO_RAD * angle2)) / 2; 
+  int angle = atan2(averY, averX) * RAD_TO_DEG;
+  return angle;
 }
 
 bool isLineBehind(){
-  for (int i = 0; i < 12; i++){ 
-    if (readMux(i) - green[i] >= (white[i] - green[i]) * 0.6){ 
-      double angle = (12 - i + 2) * 22.5;
+  for (int i = 0; i < 16; i++){ 
+    if (isLineOnSensor(i)){ 
+      double angle = (16 - i) * 22.5;
       if (angle >= 90 && angle <= 270){
         return true;
       }
     } 
   }
   return false;
+}
+
+int getLastLineDirection(){
+  return lastLineDirection;
+}
+
+bool setLastLineDirection(int value){
+  if (value != 360){
+    lastLineDirection = value;
+  }
+}
+
+int getErr(int sensor){
+  return green[sensor] + (white[sensor] - green[sensor]) * 0.5 - readMux(sensor);
 }
