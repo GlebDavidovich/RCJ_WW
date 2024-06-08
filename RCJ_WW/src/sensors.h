@@ -23,3 +23,4 @@ bool isLineBehind();
 int getLastLineDirection();
 bool setLastLineDirection(int value);
 int getErr(int sensor);
+int normalizedMux(int sensor);

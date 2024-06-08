@@ -205,7 +205,7 @@ int getBallAngle_600() {
 }
 
 bool isBall() {
-  return (ReadStrenght_600() >= 15) && (abs(getBallAngle()) <= 5);
+  return (getStrength() >= 120) && (abs(getBallAngle()) <= 5);
 }
 
 int8_t getCamData(char color) { //0 - yellow, 1 - blue
@@ -297,7 +297,7 @@ void EEPROMSaveLines(){
 }
 
 bool isLineOnSensor(int sensor){
-  return (readMux(sensor) - green[sensor] >= (white[sensor] - green[sensor]) * 0.55);
+  return (readMux(sensor) - green[sensor] >= (white[sensor] - green[sensor]) * 0.5);
 }
 
 int getLineAngle_Avg(){
@@ -414,4 +414,8 @@ bool setLastLineDirection(int value){
 
 int getErr(int sensor){
   return green[sensor] + (white[sensor] - green[sensor]) * 0.5 - readMux(sensor);
+}
+
+int normalizedMux(int sensor){
+  return (10. * (readMux(sensor)) / (white[sensor]));
 }
