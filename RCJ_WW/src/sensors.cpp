@@ -31,6 +31,7 @@ int lastLineDirection = 360;
 
 static uint32_t camera_timer=0;
 int8_t cam_angle =0;
+int cam_height;
 
 
 MPU6050 mpu;
@@ -191,13 +192,19 @@ int getBallAngle() {
   //else angle = ReadHeading_600();
   int dir = 360 - (5 * angle);
   if (dir > 180) dir = dir - 360;
+  // if (abs(dir) <= 50)
+  //   dir += 20;
   dir = constrain(dir, -180, 180);
+  if (abs(dir <= 30))
+    dir -= (dir / abs(dir)) * 20;
   return dir;
 }
 
-int getBallAngle_600() {
+int getBallAngleGoalkeeper() {
   int angle;
-  angle = ReadHeading_600();
+  angle = ReadHeading_1200();
+  //if (ReadStrenght_600() < 15) angle = ReadHeading_1200();
+  //else angle = ReadHeading_600();
   int dir = 360 - (5 * angle);
   if (dir > 180) dir = dir - 360;
   dir = constrain(dir, -180, 180);
@@ -205,7 +212,7 @@ int getBallAngle_600() {
 }
 
 bool isBall() {
-  return (getStrength() >= 120) && (abs(getBallAngle()) <= 5);
+  return (getStrength() >= 50) && (abs(getBallAngle()) <= 20);
 }
 
 int8_t getCamData(char color) { //0 - yellow, 1 - blue
@@ -225,14 +232,19 @@ int8_t getCamData(char color) { //0 - yellow, 1 - blue
     }
     //if (maxBlob.type != color) return 0;
     cam_angle = (maxBlob.cx-160)*70/320;
+    cam_height = maxBlob.top;
     // Serial.print(maxBlob.type);
     // Serial.print("  ");
-    Serial.println(cam_angle);
+    //Serial.println(cam_angle);
     
     return cam_angle;
   }
   return cam_angle;
   //return 0;
+}
+
+int getCamHeight(){
+  return cam_height;
 }
 
 int readMux(int channel){
@@ -309,7 +321,7 @@ int getLineAngle_Avg(){
   double angle1 = 0, angle2 = 0;
   double single = 0;
   for (int i = 0; i < 16; i++){ 
-    if (isLineOnSensor(i)){ 
+    if (isLineOnSensor(i) && i != 15 && i != 12){ 
       double angle = (16 - i ) * 22.5; 
       //if (angle > 180) angle -= 360; 
       //Serial.print(angle);

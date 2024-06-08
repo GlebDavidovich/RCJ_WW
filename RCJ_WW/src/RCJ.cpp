@@ -113,41 +113,6 @@ void linePID(int16_t speed) {
   drive(speed - x, -speed - x, speed + x, -speed + x);
 }
 
-void drive2ball(char color) {
-  int st = getStrength(); 
-  int angle = getBallAngle();
-  //getCamData();
-  //int cam_angle = camera_angle;
-  while (!isBall()) {
-    //float delta_angle = getCamData(color); /*getGyro();*/
-    dribble(0);
-    float delta_angle = angle * 0.6;
-    float delta = 0;
-
-    // if (abs(angle) >= 10) {
-    //   delta = (angle / abs(angle)) * st * 0.5;
-    // } else {
-    //   delta = 0;
-    // }
-    //int16_t line_angle = getLineAngle_Max(); 
-    int16_t line_angle = 360;
-    oled.clear();
-    oled.home();
-    if (line_angle == 360) {
-      drive(angle + delta, delta_angle, 100);
-      oled.print("OK");
-    }
-    else {
-      drive(line_angle - line_angle/abs(line_angle) * 180, 200);
-      oled.print("AAAAAAAA");
-    }
-    oled.update();
-    angle = getBallAngle();
-    st = getStrength();
-  }
-  dribble(45);
-}
-
 void lineCalibration(){
   oled.clear();
   oled.home();
@@ -177,6 +142,36 @@ void lineCalibration(){
   oled.update();
 }
 
+void drive2ball(char color) {
+  int st = getStrength(); 
+  int angle = getBallAngle();
+  //getCamData();
+  //int cam_angle = camera_angle;
+  while (!isBall()) {
+    //float delta_angle = getCamData(color); /*getGyro();*/
+    dribble(0);
+    //float delta_angle = angle;
+    float delta_angle = -mpuGetDegree();
+    float delta = 0;
+
+    if (abs(angle) >= 10) {
+      delta = (angle / abs(angle)) * st * 1.5;
+    } else {
+      delta = 0;
+    }
+    int16_t line_angle = getLineAngle_Avg(); 
+    if (line_angle == 360) {
+      drive(angle + delta, delta_angle, 200);
+    }
+    else {
+      drive(line_angle - line_angle/abs(line_angle) * 180, 200);
+    }
+    angle = getBallAngle();
+    st = getStrength();
+  }
+  //dribble(45);
+}
+
 void move2gate(char color) {
   //uint64_t  captureTime = millis();
   //  // angle from cam
@@ -190,12 +185,20 @@ void move2gate(char color) {
   while (/*getStrength() > 135*/ abs(getBallAngle()) <= 25) {
 
     float camera_angle = getCamData(color);
-    drive(camera_angle,camera_angle, 160);
-    // if (camera_height > 85) {
+    int line_angle = getLineAngle_Avg(); 
+    int cam_height = getCamHeight();
+    if (line_angle == 360) {
+      drive(camera_angle,camera_angle, 200);
+    }
+    else {
+      drive(line_angle - line_angle/abs(line_angle) * 180, 200);
+    }
+    
+    // if (cam_height >= 75) {
     //   kick();
-    //   drive(180);
-    //   delay(250);
-    //   drive(0, 0, 0, 0);
+    //   // drive(180);
+    //   // delay(250);
+    //   // drive(0, 0, 0, 0);
     //   break;
     // }
   }
@@ -205,10 +208,12 @@ void move2gate(char color) {
 void playForward(char color){
   oled.clear();
   oled.update();
-  while (!enc.hold()){
+  while (true){
     drive2ball(color);
+    //turnByDegree(0);
+
     move2gate(color);
-    enc.tick();
+    //enc.tick();
   }
   oledPrintMenu();
 }
@@ -220,109 +225,122 @@ void playGoalkeeper(){
   //   enc.tick();
   // }
   // oledPrintMenu();
-  if (getStrength() < 20)
-    return;
-  
-  int ballAngle = getBallAngle();
-
-  int maxSpeed = 150;
-  int moveAngle = 0;
-  int deltaAngle = 0;
-  int speed = 0;
-
-  int lineAngle = getLineAngle_Avg();
-  Serial.print("Line: ");
-  Serial.println(lineAngle);
-
-  // int robotAngle = mpuGetDegree();
-  
-  // if (ballAngle + robotAngle > 90){
-  //   moveAngle = ballAngle + 10;
-  // }
-  // else if (ballAngle + robotAngle < -90){
-  //   moveAngle = ballAngle - 10;
-  // }
-  // else{
-  //   if (ballAngle + robotAngle < 0){
-  //     moveAngle = -90;
-  //   }
-  //   else if (ballAngle + robotAngle > 0){
-  //     moveAngle = 90;
-  //   }
-  // }
-  // deltaAngle = -robotAngle;
-
-  // speed = maxSpeed;
-  
-  // double moveY = speed * cos(DEG_TO_RAD * moveAngle);
-  // double moveX = speed * sin(DEG_TO_RAD * moveAngle);
-  // if (lineAngle != 360){
-  //   int lineAng360 = lineAngle;
-  //   if (lineAng360 < 0)
-  //     lineAng360 += 360;
+  while (true) {
+    if (getStrength() < 5)
+      return;
     
-  //   // если мяч в углу, а объехать его мешает линия сзади - быстро едем к углу
-  //   int leftDiap = 100;
-  //   int rightDiap = 260;
-  //   if (lineAng360 >= rightDiap && lineAng360 <= leftDiap){
-  //     if (ballAngle + robotAngle > 90){
-  //       moveX += maxSpeed;
-  //     }
-  //     else if (ballAngle + robotAngle < -90){
-  //       moveX -= maxSpeed;
-  //     }
-  //   }
+    int ballAngle = getBallAngleGoalkeeper();
+    int robotAngle = mpuGetDegree();
+
+    if (abs(ballAngle + robotAngle) < 5){
+      drive(0, 0, 0);
+      return;
+    }
+
+    double kp = 1.5, kd;
+    int maxSpeed = 200;
+    int lineSpeed = 200;
+    int moveAngle = 0;
+    int deltaAngle = 0;
+    int speed = 0;
+
+    int lineAngle = getLineAngle_Avg();
+    Serial.print("Line: ");
+    Serial.println(lineAngle);
     
-  //   // если мы в углу и двигаться к мячу мешает линия слева/справа - едем вперёд
-  //   leftDiap = 170;
-  //   rightDiap = 10;
-  //   if (lineAngle > 0 && (ballAngle) > 0){
-  //     moveY += maxSpeed;
-  //     deltaAngle = -10;
-  //   }
-  //   leftDiap = 350;
-  //   rightDiap = 190;
-  //   if (lineAngle < 0 && (ballAngle) < 0){
-  //     moveY += maxSpeed;
-  //     deltaAngle = 10;
-  //   }
+    if (ballAngle + robotAngle > 90){
+      moveAngle = ballAngle + 10;
+    }
+    else if (ballAngle + robotAngle < -90){
+      moveAngle = ballAngle - 10;
+    }
+    else{
+      if (ballAngle + robotAngle < 0){
+        moveAngle = -95;
+      }
+      else if (ballAngle + robotAngle > 0){
+        moveAngle = 95;
+      }
+    }
+    deltaAngle = -robotAngle;
 
-  //   moveX -= maxSpeed * cos(DEG_TO_RAD * lineAngle);
-  //   moveY -= maxSpeed * sin(DEG_TO_RAD * lineAngle);
-  // }
-  // // if (getStrength() < 70){
-  // //   if (lineAngle == 360){
-  // //     moveY -= 30;
-  // //   }
-  // //   else if (!isLineBehind()){
-  // //     moveY += 50;
-  // //   }
-  // // }
-  // speed = sqrt(moveX * moveX + moveY * moveY);
-  // moveAngle = atan2(moveX, moveY) * RAD_TO_DEG;
-  
-  // drive(moveAngle, deltaAngle, speed);
+    //speed = maxSpeed * max(1, abs(ballAngle + robotAngle) / 90);
+    double ballDist = constrain(getStrength(), 60, 100) / 20;
+    // if (getStrength() < 60){
+    //   ballDist *= 10;
+    // }
 
-  if (lineAngle > 0){
-    speed = 50;
+    speed = kp * min(90, abs(ballAngle + robotAngle)) * ballDist;
+    speed = min(speed, maxSpeed);
+    
+    double moveY = speed * cos(DEG_TO_RAD * moveAngle);
+    double moveX = speed * sin(DEG_TO_RAD * moveAngle);
+    if (lineAngle != 360){
+      int lineAng360 = lineAngle;
+      if (lineAng360 < 0)
+        lineAng360 += 360;
+      
+      // если мяч в углу, а объехать его мешает линия сзади - быстро едем к углу
+      int leftDiap = 100;
+      int rightDiap = 260;
+      if (lineAng360 >= rightDiap && lineAng360 <= leftDiap){
+        if (ballAngle + robotAngle > 90){
+          moveX += lineSpeed;
+        }
+        else if (ballAngle + robotAngle < -90){
+          moveX -= lineSpeed;
+        }
+      }
+      
+      // если мы в углу и двигаться к мячу мешает линия слева/справа - едем вперёд
+      leftDiap = 170;
+      rightDiap = 10;
+      if (lineAngle > 0 && (ballAngle) > 0){
+        moveY += lineSpeed;
+      }
+      leftDiap = 350;
+      rightDiap = 190;
+      if (lineAngle < 0 && (ballAngle) < 0){
+        moveY += lineSpeed;
+      }
+
+      moveX -= lineSpeed * cos(DEG_TO_RAD * lineAngle);
+      moveY -= lineSpeed * sin(DEG_TO_RAD * lineAngle);
+    }
+    if (getStrength() < 70){
+      if (lineAngle == 360){
+        moveY -= 30;
+      }
+      // else if (!isLineBehind()){
+      //   moveY += 50;
+      // }
+    }
+    speed = sqrt(moveX * moveX + moveY * moveY);
+    moveAngle = atan2(moveX, moveY) * RAD_TO_DEG;
+    
+    drive(moveAngle, deltaAngle, speed);
+
+    // if (lineAngle > 0){
+    //   speed = 50;
+    // }
+    // else{
+    //   speed = -50;
+    // }
+
+    // linePID(speed);
+
+    Serial.print("    move: ");
+    Serial.print(moveAngle);
+    Serial.print(" ");
+    
+    Serial.print("    speed: ");
+    Serial.print(speed);
+    Serial.print(" ");
+      
+    Serial.print("    getStrength: ");
+    Serial.print(getStrength());
+    Serial.print(" ");
   }
-  else{
-    speed = -50;
-  }
-
-  linePID(speed);
-
-  // Serial.print("    move: ");
-  // Serial.print(moveAngle);
-  // Serial.print(" ");
-  
-  // Serial.print("    speed: ");
-  // Serial.print(speed);
-  // Serial.print(" ");
-    
-  // Serial.print("    rotate: ");
-  // Serial.print(deltaAngle);
-  // Serial.print(" ");
 }
 
 void sensorsCheck(){
@@ -396,7 +414,6 @@ void setup() {
   oledPrintMenu();
 }
 
-
 void loop() {
   // for(int i = 0; i < 16; i ++){
   //   Serial.print(readMux(i));
@@ -439,7 +456,7 @@ void loop() {
   // Serial.print(", max - ");
   // Serial.println(line2);
 
-  // playGoalkeeper();
+  //playGoalkeeper();
 
   // uint64_t tmr1 = millis();
   // while (millis() - tmr1 <= 1000){
@@ -450,11 +467,19 @@ void loop() {
   //   drive(-90, -mpuGetDegree(), 200);
   // }
   //drive(0,0,100);
-  drive2ball(1);
-  // Serial.print(getBallAngle());
+  //drive2ball(1);
+  // Serial.print(ReadStrenght());
+  // Serial.print(' ');
+  // Serial.print(ReadStrenght_600());
   // Serial.print(' ');
   // Serial.println(isBall());
+  // int16_t line_angle = getLineAngle_Avg(); 
+  // Serial.println(line_angle);
+  // Serial.print(getCamData(1));
+  // Serial.print(' ');
+  // Serial.println(getCamHeight());
   //linePID(-70);
+  // drive(90,0,100);
 
 
 }
