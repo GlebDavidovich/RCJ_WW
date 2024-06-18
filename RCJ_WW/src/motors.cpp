@@ -91,6 +91,15 @@ void drive(float angle, int speed) {
   drive(speed * k2, speed * k1, speed * k2, speed * k1);
 }
 
+void driveXY(int speedX, int speedY, int rotationSpeed)
+{
+    double sec45 = 1.4142135623730950488016887242097;
+    drive((speedY + speedX) * sec45 + rotationSpeed,
+          (speedY - speedX) * sec45 + rotationSpeed,
+          (speedY + speedX) * sec45 - rotationSpeed,
+          (speedY - speedX) * sec45 - rotationSpeed);
+}
+
 void kick() {
   digitalWrite(KICKER, HIGH);
   delay(200);
