@@ -14,6 +14,9 @@
 #define S3 27 
 #define SIG 14
 
+#define COLOR_YELLOW 0
+#define COLOR_BLUE 1
+
 uint8_t fifoBuffer[45];  // буфер
 int offsets[6];
 
@@ -23,6 +26,8 @@ const int gyro_deadzone = 6;   // точность калибровки гиро
 int16_t ax, ay, az, gx, gy, gz;
 int mean_ax, mean_ay, mean_az, mean_gx, mean_gy, mean_gz, state = 0;
 int ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset;
+static uint32_t tmr = millis();
+int16_t robot_angle;
 
 int green[16];
 int white[16];
@@ -37,11 +42,16 @@ int cam_height;
 MPU6050 mpu;
 TrackingCamI2C trackingCam;
 
+int camera_id = 51;
+
 void mpuAndCamInit() {
   mpu.initialize();
   mpu.dmpInitialize();
   mpu.setDMPEnabled(true);
-  trackingCam.init(51, 400000);
+  Serial.println("Init cam...");
+  //trackingCam.init(51, 400000);
+  Wire.begin();
+  camera_id = 51;
 
   pinMode(S0, OUTPUT); 
   pinMode(S1, OUTPUT); 
@@ -163,7 +173,6 @@ void calibration() {
 }
 
 int16_t mpuGetDegree() {
-  static uint32_t tmr;
   if (millis() - tmr >= 11) {  // таймер на 11 мс (на всякий случай)
     if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {
       // переменные для расчёта (ypr можно вынести в глобал)
@@ -174,11 +183,11 @@ int16_t mpuGetDegree() {
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-
       return degrees(ypr[0]);
       tmr = millis();  // сброс таймера
     }
   }
+  //return robot_angle;
 }
 
 int getStrength() {
@@ -188,15 +197,15 @@ int getStrength() {
 int getBallAngle() {
   int angle;
   angle = ReadHeading_1200();
-  //if (ReadStrenght_600() < 15) angle = ReadHeading_1200();
-  //else angle = ReadHeading_600();
+  if (ReadStrenght_600() < 15) angle = ReadHeading_1200();
+  else angle = ReadHeading_600();
   int dir = 360 - (5 * angle);
   if (dir > 180) dir = dir - 360;
   // if (abs(dir) <= 50)
   //   dir += 20;
   dir = constrain(dir, -180, 180);
-  if (abs(dir <= 30))
-    dir -= (dir / abs(dir)) * 20;
+  // if (abs(dir <= 30))
+  //   dir -= (dir / abs(dir)) * 20;
   return dir;
 }
 
@@ -211,11 +220,26 @@ int getBallAngleGoalkeeper() {
   return dir;
 }
 
-bool isBall() {
-  return (getStrength() >= 50) && (abs(getBallAngle()) <= 20);
+int lastBallTime = 0;
+int ballGapTime = 200;
+
+void updateBallCatched(){
+  if (digitalRead(39)){   // добавить пин
+    lastBallTime = millis();
+  }
 }
 
-int8_t getCamData(char color) { //0 - yellow, 1 - blue
+bool isBall() {
+  //return abs(getBallAngle()) <= 20 && getStrength() >= 50;
+  updateBallCatched();
+  return (millis() - lastBallTime) < ballGapTime;
+}
+
+bool isBallGoalkeeper(){
+  return abs(getBallAngle()) <= 20 && getStrength() >= 50;
+}
+
+int8_t getCamData(int color) { //0 - yellow, 1 - blue
   if (millis() - camera_timer >= 30) {
     camera_timer = millis();
     uint8_t n = trackingCam.readBlobs(5);
@@ -224,13 +248,13 @@ int8_t getCamData(char color) { //0 - yellow, 1 - blue
     TrackingCamBlobInfo_t maxBlob;
     if (n > 1) {
       for (int i = 1; i < n; i++) {
-        if (trackingCam.blob[i].area > trackingCam.blob[i-1].area) 
+        if (trackingCam.blob[i].area > trackingCam.blob[i-1].area && trackingCam.blob[i].type == color) 
           maxBlob = trackingCam.blob[i];
       }
     } else {
-      maxBlob = trackingCam.blob[0];
+      if (trackingCam.blob[0].type == color)
+        maxBlob = trackingCam.blob[0];
     }
-    //if (maxBlob.type != color) return 0;
     cam_angle = (maxBlob.cx-160)*70/320;
     cam_height = maxBlob.top;
     // Serial.print(maxBlob.type);
@@ -245,6 +269,92 @@ int8_t getCamData(char color) { //0 - yellow, 1 - blue
 
 int getCamHeight(){
   return cam_height;
+}
+
+OmniCamBlobInfo_t blueGateBlob;
+OmniCamBlobInfo_t yellowGateBlob;
+OmniCamBlobInfo_t obstacleBlob;
+
+uint8_t OpenMV_ReadData(uint8_t cam_id, uint8_t addr, uint8_t len, uint8_t* resp)
+{
+  // Wire.beginTransmission(0x12); // transmit to device #1
+  // Wire.write(addr);
+  // Wire.endTransmission();
+
+  Wire.requestFrom(0x12, len);    // request len bytes from slave device cam_id
+  uint8_t idx = 0;
+  while (Wire.available())
+  { // slave may send less than requested
+      resp[idx] = Wire.read(); // receive a byte as character
+      idx++;
+  }
+  return 0;
+}
+
+int getCamAngle() {
+  static int const CHAR_BUF = 10;
+  int angle = 0;
+  int32_t temp = 0;
+  char buff[CHAR_BUF] = {0};
+
+  Wire.requestFrom(0x12, 2);
+  if (Wire.available() == 2) { // got length?
+    temp = Wire.read() | (Wire.read() << 8);
+    delay(1); // Give some setup time...
+    Wire.requestFrom(0x12, temp);
+    if (Wire.available() == temp) { // got full message?
+      temp = 0;
+      while (Wire.available()) buff[temp++] = Wire.read();
+
+    } else {
+      while (Wire.available()) Wire.read(); // Toss garbage bytes.
+    }
+  } else {
+    while (Wire.available()) Wire.read(); // Toss garbage bytes.
+  }
+  angle = atoi(buff);
+  return angle;
+}
+
+void getOpenMVCamData(int color){
+  uint8_t resp[255];
+  uint8_t n = 0;
+  uint8_t idx = 0;
+  
+  OpenMV_ReadData(camera_id, 16, 36, resp);
+
+  yellowGateBlob.leftAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  yellowGateBlob.rightAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  yellowGateBlob.center = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  yellowGateBlob.width = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  yellowGateBlob.distance = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+
+  blueGateBlob.leftAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  blueGateBlob.rightAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  blueGateBlob.center = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  blueGateBlob.width = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  blueGateBlob.distance = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+
+  obstacleBlob.leftAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  obstacleBlob.rightAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  obstacleBlob.center = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  obstacleBlob.width = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
+  obstacleBlob.distance = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
+  idx += 2;
 }
 
 int readMux(int channel){
@@ -321,7 +431,7 @@ int getLineAngle_Avg(){
   double angle1 = 0, angle2 = 0;
   double single = 0;
   for (int i = 0; i < 16; i++){ 
-    if (isLineOnSensor(i) && i != 15 && i != 12){ 
+    if (isLineOnSensor(i)){ 
       double angle = (16 - i ) * 22.5; 
       //if (angle > 180) angle -= 360; 
       //Serial.print(angle);
@@ -430,4 +540,87 @@ int getErr(int sensor){
 
 int normalizedMux(int sensor){
   return (10. * (readMux(sensor)) / (white[sensor]));
+}
+
+int lineTimes[16];
+float priority[16];
+int lineActualTime = 30;
+
+void saveLineDirection() {
+    bool isLine = false;
+    for (int i = 0; i < 16; i++) {
+        if (isLineOnSensor(i)) {
+            lineTimes[i] = millis();
+            isLine = true;
+        }
+    }
+    if (!isLine) {
+        for (int i = 0; i < 16; i++) {
+            lineTimes[i] = -lineActualTime;
+        }
+    }
+}
+
+void getLineDirection_Delayed(float& x, float& y)
+{
+    float sumX = 0;
+    float sumY = 0;
+    int k = 0;
+
+    //Serial.print("lines ");
+    for (int i = 0; i < 16; i++) {
+        if (white[i] - green[i] < 700)
+          continue;
+        int delay = lineActualTime - (millis() - lineTimes[i]);
+        if (millis() - lineTimes[i] < lineActualTime && lineTimes[i] >= 0)
+        {
+            float ang = (16 - i) * 22.5f;
+            k += delay;
+            sumX += sin(ang * DEG_TO_RAD) * delay;
+            sumY += cos(ang * DEG_TO_RAD) * delay;
+            //Serial.print(1);
+            //Serial.print(' ');
+        }
+        else{
+          //Serial.print(0);
+          //Serial.print(' ');
+        }
+        if (lineTimes[i] < 0)
+            priority[i] = 0;
+        else
+            priority[i] = delay;
+    }
+    if (k == 0)
+    {
+        for (int i = 0; i < 16; i++)
+        {
+            lineTimes[i] = -lineActualTime;
+        }
+        x = 0;
+        y = 0;
+    }
+    else
+    {
+        x = sumX / k;
+        y = sumY / k;
+        float length = sqrt(x * x + y * y);
+        x /= length;
+        y /= length;
+    }
+    //Serial.println();
+}
+
+int getLineAngle_Delayed()
+{
+    float x, y;
+    getLineDirection_Delayed(x, y);
+    if (x == 0 && y == 0)
+        return 360;
+    float angle = atan2(x, y) * RAD_TO_DEG;
+    return angle;
+}
+
+int getLineTime(int index)
+{
+    return lineTimes[index];
 }
