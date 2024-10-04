@@ -1,3 +1,4 @@
+#pragma once
 #include "locator.h"
 
 #define LOCATOR_ADDRESS 0x0E

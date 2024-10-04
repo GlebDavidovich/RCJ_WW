@@ -12,6 +12,7 @@ void drive(float angle, int rotation_speed, int speed);
 void drive(float angle, int speed);
 void driveXY(int speedX, int speedY, int rotationSpeed);
 void kick();
+void return_kick();
 void turnByDegree(int16_t degree);
 void drive2ball();
 void move2gate();

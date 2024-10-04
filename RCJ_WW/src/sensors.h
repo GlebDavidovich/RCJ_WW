@@ -1,15 +1,23 @@
 #pragma once
 #include <Arduino.h>
+// #include "AirDebug.h"
 
-struct OmniCamBlobInfo_t
-{
-    uint16_t leftAngle = 0;
-    uint16_t rightAngle = 0;
-    uint16_t center = 0;
-    uint16_t width = 0;
-    uint16_t distance = 0;
-    uint16_t closest = 0;
+
+struct OmniCamBlobInfo_t {
+    int left_angle = 0;
+    int right_angle = 0;
+    int center_angle = 0;
+    int width = 0;
+    int clos_angle = 0;
+    int distance = 0;
+    int height = 0;
 };
+struct OmniCamData_t{
+    OmniCamBlobInfo_t gates[2];
+    //OmniCamBlobInfo_t blueGate;
+};
+
+extern OmniCamData_t camDataOmni;
 
 void mpuAndCamInit();
 void setupOffsetsFromEEPROM();
@@ -24,7 +32,9 @@ bool isBallGoalkeeper();
 int8_t getCamData(int color);
 int getCamHeight();
 uint8_t OpenMV_ReadData(uint8_t cam_id, uint8_t addr, uint8_t len, uint8_t *resp);
-void getOpenMVCamData(int color);
+OmniCamData_t omnicam();
+void parseOmniCamData(char *data, int len);
+bool getOpenMVDataOmni();
 OmniCamBlobInfo_t getBlueGate();
 int readMux(int channel);
 void getGreen();

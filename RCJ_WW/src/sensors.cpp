@@ -1,3 +1,4 @@
+#pragma once
 #include "sensors.h"
 #include "TrackingCamI2C.h"
 #include "Wire.h"
@@ -183,6 +184,9 @@ int16_t mpuGetDegree() {
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+      #if DebugInfo
+        Debug.gyroskope_angle = degrees(ypr[0]);
+      #endif
       return degrees(ypr[0]);
       tmr = millis();  // сброс таймера
     }
@@ -194,11 +198,16 @@ int getStrength() {
   return ReadStrenght();
 }
 
+int lastBallSeenAngle = 0;
+
 int getBallAngle() {
+  // if (getStrength() == 0){
+  //   return lastBallAngle;
+  // }
   int angle;
   angle = ReadHeading_1200();
-  if (ReadStrenght_600() < 15) angle = ReadHeading_1200();
-  else angle = ReadHeading_600();
+  if (ReadStrenght_600() < 15) {angle = ReadHeading_1200();}
+  else {angle = ReadHeading_600(); /*Serial.println(600);*/}
   int dir = 360 - (5 * angle);
   if (dir > 180) dir = dir - 360;
   // if (abs(dir) <= 50)
@@ -206,6 +215,12 @@ int getBallAngle() {
   dir = constrain(dir, -180, 180);
   // if (abs(dir <= 30))
   //   dir -= (dir / abs(dir)) * 20;
+  if (dir == -180)
+    return lastBallSeenAngle;
+  lastBallSeenAngle = dir;
+  #if DebugInfo
+    Debug.ball_angle = dir;
+  #endif
   return dir;
 }
 
@@ -232,7 +247,11 @@ void updateBallCatched(){
 bool isBall() {
   //return abs(getBallAngle()) <= 20 && getStrength() >= 50;
   updateBallCatched();
-  return (millis() - lastBallTime) < ballGapTime;
+  bool ans = (millis() - lastBallTime) < ballGapTime;
+  #if DebugInfo
+    Debug.is_ball = ans;
+  #endif
+  return ans;
 }
 
 bool isBallGoalkeeper(){
@@ -291,70 +310,85 @@ uint8_t OpenMV_ReadData(uint8_t cam_id, uint8_t addr, uint8_t len, uint8_t* resp
   return 0;
 }
 
-int getCamAngle() {
-  static int const CHAR_BUF = 10;
-  int angle = 0;
-  int32_t temp = 0;
-  char buff[CHAR_BUF] = {0};
+OmniCamData_t camDataOmni;
 
-  Wire.requestFrom(0x12, 2);
-  if (Wire.available() == 2) { // got length?
-    temp = Wire.read() | (Wire.read() << 8);
-    delay(1); // Give some setup time...
-    Wire.requestFrom(0x12, temp);
-    if (Wire.available() == temp) { // got full message?
-      temp = 0;
-      while (Wire.available()) buff[temp++] = Wire.read();
-
-    } else {
-      while (Wire.available()) Wire.read(); // Toss garbage bytes.
-    }
-  } else {
-    while (Wire.available()) Wire.read(); // Toss garbage bytes.
-  }
-  angle = atoi(buff);
-  return angle;
+OmniCamData_t omnicam(){
+  return camDataOmni;
 }
 
-void getOpenMVCamData(int color){
-  uint8_t resp[255];
-  uint8_t n = 0;
-  uint8_t idx = 0;
-  
-  OpenMV_ReadData(camera_id, 16, 36, resp);
+void parseOmniCamData(char* data, int len) {
+    int temp = 0;
+    int sign = 1;
+    int parsed[14];
+    memset(parsed, 0, sizeof(parsed));
+    int index = 0;
+    for (int i = 0; i < len && index < 14; ++i) {
+        if (data[i] == ' ' || data[i] == '\0') {
+            parsed[index] = temp * sign;
+            index++;
 
-  yellowGateBlob.leftAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  yellowGateBlob.rightAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  yellowGateBlob.center = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  yellowGateBlob.width = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  yellowGateBlob.distance = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
+            temp = 0;
+            sign = 1;
+            if (data[i] == '\0')
+                break;
+        }
+        else {
+            if (data[i] == '-') {
+                sign = -1;
+            }
+            else {
+                temp = temp * 10 + (data[i] & 15);
+            }
+        }
+    }
 
-  blueGateBlob.leftAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  blueGateBlob.rightAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  blueGateBlob.center = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  blueGateBlob.width = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  blueGateBlob.distance = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
+    if (index < 14)
+      return;
 
-  obstacleBlob.leftAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  obstacleBlob.rightAngle = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  obstacleBlob.center = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  obstacleBlob.width = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
-  obstacleBlob.distance = ((uint16_t)resp[idx]) + (((uint16_t)resp[idx + 1]) << 8);
-  idx += 2;
+    camDataOmni.gates[0].left_angle = parsed[0];
+    camDataOmni.gates[0].center_angle = parsed[1];
+    camDataOmni.gates[0].right_angle = parsed[2];
+    camDataOmni.gates[0].clos_angle = parsed[3];
+    camDataOmni.gates[0].distance = parsed[4];
+    camDataOmni.gates[0].width = parsed[5];
+    camDataOmni.gates[0].height = parsed[6];
+
+    camDataOmni.gates[1].left_angle = parsed[7];
+    camDataOmni.gates[1].center_angle = parsed[8];
+    camDataOmni.gates[1].right_angle = parsed[9];
+    camDataOmni.gates[1].clos_angle = parsed[10];
+    camDataOmni.gates[1].distance = parsed[11];
+    camDataOmni.gates[1].width = parsed[12];
+    camDataOmni.gates[1].height = parsed[13];
+
+    // for (int i = 0; i < 14; ++i){
+    //   Serial.print(parsed[i]);
+    //   Serial.print(" ");
+    // }
+    // Serial.println();
+}
+
+char buff[512];
+
+bool getOpenMVDataOmni(){
+  if (Serial.available() > 0)
+  {
+    int len = 0;
+    // Serial.print(millis());
+    // Serial.print(" ");
+    while (Serial.available() >= 512)
+      Serial.read();
+    while (Serial.available() > 0){
+      // Serial.print(char(Serial.read()));
+      buff[len++] = (char)Serial.read();
+    }
+    // buff[len++] = '\0';
+    // Serial.println();
+    parseOmniCamData(buff, len); 
+    return true;
+  }
+  // Serial.println(buff);
+  return false;
 }
 
 int readMux(int channel){
@@ -544,7 +578,7 @@ int normalizedMux(int sensor){
 
 int lineTimes[16];
 float priority[16];
-int lineActualTime = 30;
+int lineActualTime = 100;
 
 void saveLineDirection() {
     bool isLine = false;
@@ -569,9 +603,9 @@ void getLineDirection_Delayed(float& x, float& y)
 
     //Serial.print("lines ");
     for (int i = 0; i < 16; i++) {
-        if (white[i] - green[i] < 700)
+        if (white[i] - green[i] < 700 ) //|| i == 0 || i == 1 || i == 14 || i == 15
           continue;
-        int delay = lineActualTime - (millis() - lineTimes[i]);
+        int delay = lineActualTime - (millis() - lineTimes[i]) + 1;
         if (millis() - lineTimes[i] < lineActualTime && lineTimes[i] >= 0)
         {
             float ang = (16 - i) * 22.5f;
@@ -617,6 +651,9 @@ int getLineAngle_Delayed()
     if (x == 0 && y == 0)
         return 360;
     float angle = atan2(x, y) * RAD_TO_DEG;
+    #if DebugInfo
+      Debug.line_angle = angle;
+    #endif
     return angle;
 }
 

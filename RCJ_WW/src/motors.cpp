@@ -1,3 +1,4 @@
+#pragma once
 #include "motors.h"
 //#include "esp32-hal-ledc.h"
 
@@ -127,10 +128,17 @@ void driveXY(int speedX, int speedY, int rotationSpeed)
           (speedY - speedX) * sec45 - rotationSpeed);
 }
 
+int kick_tt = 0;
 void kick() {
   digitalWrite(KICKER, HIGH);
-  delay(200);
-  digitalWrite(KICKER, LOW);
+  kick_tt = millis();
+}
+
+void return_kick(){
+  if (millis() - kick_tt >= 200){
+    digitalWrite(KICKER, LOW);
+    kick_tt = millis();
+  }
 }
 
 void dribble(uint8_t speed){
